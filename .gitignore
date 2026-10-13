@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+.env
+*.gguf
+models-data/
+.localpilot/
+dist/
+build/
+*.egg-info/
+.jean-grey/
+acceptance-results/

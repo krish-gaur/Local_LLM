@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "jean-grey"
+version = "0.3.3"
+description = "Local-first, resource-aware autonomous AI agent with optional voice"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Jean Grey contributors"}]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest==8.3.5", "ruff==0.11.2", "mypy==1.15.0"]
+voice = ["faster-whisper==1.1.1", "numpy==1.26.4", "sounddevice==0.5.1", "soundfile==0.13.1"]
+mcp = ["mcp==1.30.0"]
+
+[project.scripts]
+jean-grey = "localpilot.app.main:main"
+# Compatibility alias; existing scripts do not break after the product rename.
+localpilot = "localpilot.app.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["localpilot"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true

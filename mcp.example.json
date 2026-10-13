@@ -1,0 +1,30 @@
+{
+  "servers": {
+    "playwright": {
+      "enabled": false,
+      "command": "npx",
+      "args": [
+        "--offline",
+        "@playwright/mcp@0.0.83",
+        "--browser",
+        "chrome",
+        "--isolated"
+      ],
+      "env_from": {},
+      "browser": true,
+      "timeout_seconds": 30,
+      "allowed_tools": {
+        "browser_navigate": "read_only",
+        "browser_snapshot": "read_only",
+        "browser_evaluate": {
+          "permission": "read_only",
+          "adapter_only": true
+        },
+        "browser_tabs": "read_only",
+        "browser_take_screenshot": "sensitive",
+        "browser_click": "sensitive",
+        "browser_fill_form": "sensitive"
+      }
+    }
+  }
+}
