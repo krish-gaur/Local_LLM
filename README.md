@@ -163,6 +163,12 @@ mapped tools, security boundaries, and truthful mock-versus-real test status.
 ## Configuration and development
 
 See [`.env.example`](.env.example). Defaults are offline and Ollama URLs are loopback-only.
+Windows acceptance is inspection-only unless an explicit test flag is supplied:
+
+```powershell
+.\scripts\acceptance.ps1
+.\scripts\acceptance.ps1 -RunMcpSmoke
+```
 
 ```powershell
 python -m unittest discover -v

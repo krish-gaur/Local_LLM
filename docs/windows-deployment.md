@@ -13,6 +13,41 @@ package unless the operator supplies an install switch or runs the displayed com
 
 Run all commands from the repository root in PowerShell. Do not use an elevated shell.
 
+## One-command acceptance runner
+
+The acceptance runner is inspection-only by default. It always writes a unique, redacted Markdown
+report under the Git-ignored `acceptance-results` directory and never treats SKIPPED or NOT VERIFIED
+as real acceptance. Exit `0` means all executed checks passed, `1` means an explicitly requested
+acceptance stage failed or skipped, and `3` means inspection found unavailable prerequisites.
+
+```powershell
+# Passive inspection only: no install, MCP launch, browser, network, or microphone access.
+.\scripts\acceptance.ps1
+
+# Explicitly initialize MCP and run the controlled loopback-page test.
+.\scripts\acceptance.ps1 -RunMcpSmoke
+
+# Access example.com only after the controlled test passes.
+.\scripts\acceptance.ps1 -RunMcpSmoke -RunRealWeb
+
+# Run existing three-source research and save a unique approved report.
+.\scripts\acceptance.ps1 -RunMcpSmoke -ResearchTopic "AI safety evaluation"
+
+# Passive voice dependency/model/device diagnostics; does not capture microphone audio.
+.\scripts\acceptance.ps1 -RunVoiceDiagnostics
+```
+
+Dependency installation is also opt-in and remains project-local:
+
+```powershell
+.\scripts\acceptance.ps1 -InstallDependencies
+```
+
+Review the package changes first: this installs Jean Grey and the Python MCP SDK into `.venv`, and
+`@playwright/mcp@0.0.83` into this repository's `node_modules`. Exact transfer and installed sizes
+vary with the existing pip/npm cache. It does not install a browser, global npm package, model, or
+voice. Run the inspection-only command again after installation before requesting real tests.
+
 ## 1. Inspect only — install nothing
 
 ```powershell
