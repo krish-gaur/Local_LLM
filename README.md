@@ -172,7 +172,8 @@ python -m localpilot.app.main voice --check
 
 Documentation: [Milestone 1](docs/milestone-1.md), [Milestone 2](docs/milestone-2.md), and
 [Milestone 2.1](docs/milestone-2.1.md), [Milestone 3](docs/milestone-3.md),
-[Milestone 3.1](docs/milestone-3.1.md), and [Milestone 3.2](docs/milestone-3.2.md).
+[Milestone 3.1](docs/milestone-3.1.md), [Milestone 3.2](docs/milestone-3.2.md), and the
+[Windows deployment and real-integration guide](docs/windows-deployment.md).
 
 Real Playwright/Chrome integration remains environment-dependent and unverified in the sandbox.
 Persistent SQLite checkpoints and a desktop GUI are not implemented yet.

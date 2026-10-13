@@ -8,7 +8,7 @@ import re
 import sys
 import time
 import threading
-from typing import Sequence
+from typing import Any, Sequence
 
 from localpilot.config import Settings
 from localpilot.models.base import ChatMessage, ModelUnavailableError
@@ -18,7 +18,9 @@ SYSTEM_PROMPT = "You are Jean Grey. Be concise, accurate, and never claim an act
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from localpilot import __version__
     parser = argparse.ArgumentParser(prog="jean-grey", description="Jean Grey local AI runtime")
+    parser.add_argument("--version", action="version", version=f"Jean Grey {__version__}")
     parser.add_argument("command", nargs="?", choices=("chat", "agent", "voice", "mcp", "browser"), default="chat")
     parser.add_argument("--check", action="store_true", help="check selected subsystem readiness")
     parser.add_argument("--prompt", help="send one prompt and exit")
@@ -93,27 +95,71 @@ def run_agent_demo(settings: Settings, request: str) -> int:
 
 
 def run_mcp_check(settings: Settings, config_path: Path, *, browser_only: bool = False) -> int:
-    """Connect and discover only; never invoke a discovered tool."""
+    """Validate prerequisites, initialize configured servers, and discover tools without invoking them."""
     from dataclasses import asdict
     from localpilot.agent.executor import ToolRegistry
     from localpilot.browser.tools import register_browser_tools
-    from localpilot.mcp.config import McpConfigError, load_mcp_config
+    from localpilot.diagnostics import (browser_prerequisite, configured_browser, executable,
+                                        node_prerequisites, playwright_mcp_prerequisite,
+                                        python_prerequisites)
+    from localpilot.mcp.client import McpStatus
+    from localpilot.mcp.config import McpConfig, McpConfigError, load_mcp_config
     from localpilot.mcp.registry import McpManager
 
     try: config = load_mcp_config(config_path)
     except McpConfigError as exc:
-        print(json.dumps({"configured": False, "path": str(config_path), "error": str(exc)}, indent=2)); return 3
-    registry = ToolRegistry(); manager = McpManager(config)
+        print(json.dumps({"configured": False, "configuration_status": "missing" if not config_path.is_file() else "invalid",
+                          "path": str(config_path), "error": str(exc),
+                          "next_command": r"Copy-Item .\mcp.windows.example.json $HOME\.jean-grey\mcp.json"}, indent=2)); return 3
+    python = python_prerequisites(); node = node_prerequisites()
+    preflight_statuses: list[McpStatus] = []; eligible = {}
+    browsers: dict[str, dict[str, Any]] = {}; playwright_packages: dict[str, dict[str, Any]] = {}
+    for name, definition in config.servers.items():
+        if browser_only and not definition.browser:
+            preflight_statuses.append(McpStatus(name, definition.enabled, False, 0, 0,
+                                                "not_selected_for_browser_check")); continue
+        uses_node = definition.command.lower().startswith(("npx", "npm"))
+        uses_playwright_package = definition.command.lower().startswith("npx") and any(
+            item.startswith("@playwright/mcp") for item in definition.args)
+        if uses_playwright_package:
+            playwright_packages[name] = playwright_mcp_prerequisite(definition.args)
+        if definition.browser:
+            browsers[name] = browser_prerequisite(configured_browser(definition.args))
+        if not definition.enabled:
+            preflight_statuses.append(McpStatus(name, False, False, 0, 0, "server_disabled")); continue
+        blocker = None
+        if not python["mcp_sdk_available"]: blocker = "dependency_missing: mcp SDK"
+        elif executable(definition.command) is None: blocker = f"server_executable_unavailable: {definition.command}"
+        elif uses_node and not node["node_supported"]: blocker = "dependency_missing: Node.js 18+"
+        elif uses_playwright_package and not playwright_packages[name]["version_match"]:
+            blocker = "dependency_missing: @playwright/mcp"
+        elif definition.browser and not browsers[name]["available"]: blocker = "browser_unavailable"
+        if blocker:
+            preflight_statuses.append(McpStatus(name, True, False, 0, 0, blocker)); continue
+        eligible[name] = definition
+    registry = ToolRegistry(); manager = McpManager(McpConfig(eligible))
     try:
-        statuses = manager.connect_enabled(registry); aliases: dict[str, list[str]] = {}
+        statuses = preflight_statuses + manager.connect_enabled(registry); aliases: dict[str, list[str]] = {}
         for name, client in manager.clients.items():
             if client.connected and client.config.browser:
                 aliases[name] = list(register_browser_tools(client, registry, settings.browser_max_content_chars))
-        payload = {"configured": True, "path": str(config_path), "servers": [asdict(item) for item in statuses],
-                   "browser_aliases": aliases, "diagnostic_only": True}
-        print(json.dumps(payload, indent=2))
         relevant = [item for item in statuses if not browser_only or config.servers[item.name].browser]
-        return 0 if relevant and all(item.connected for item in relevant if item.enabled) and any(item.enabled for item in relevant) else 3
+        ready = bool(relevant) and any(item.enabled for item in relevant) and all(
+            item.connected for item in relevant if item.enabled)
+        if browser_only and ready:
+            required_aliases = {"browser.navigate", "browser.get_page_content"}
+            ready = all(required_aliases.issubset(set(aliases.get(item.name, [])))
+                        for item in relevant if item.enabled)
+        payload = {"configured": True, "configuration_status": "valid", "path": str(config_path),
+                   "python": python, "node": node, "playwright_mcp": playwright_packages,
+                   "browsers": browsers,
+                   "servers": [asdict(item) for item in statuses], "browser_aliases": aliases,
+                   "status": (("browser_available_not_yet_tested" if browser_only else "mcp_ready")
+                              if ready else "integration_unavailable"),
+                   "integration_ready": False if browser_only else ready,
+                   "browser_navigation_tested": False, "diagnostic_only": True}
+        print(json.dumps(payload, indent=2))
+        return 0 if ready else 3
     finally: manager.close()
 
 
@@ -255,8 +301,13 @@ def run_voice(settings: Settings, args: argparse.Namespace) -> int:
                                                        settings.wake_word_threshold))
     health = voice_health(audio_input, stt, tts, output, offline=settings.offline, wake_word=wake_word)
     if args.check:
-        print(json.dumps(health, indent=2)); return 0 if all(
-            health[key]["available"] for key in ("audio_input", "speech_to_text", "text_to_speech", "audio_output")) else 3
+        required = ["audio_input", "speech_to_text", "text_to_speech", "audio_output"]
+        if args.wake_word: required.append("wake_word")
+        if args.language == "hi" and args.speak_responses: required.append("hindi_text_to_speech")
+        ready = all(health[key]["available"] for key in required)
+        health["required_components"] = required
+        health["status"] = "integration_ready" if ready else "integration_unavailable"
+        print(json.dumps(health, indent=2)); return 0 if ready else 3
     if "hindi_text_to_speech" in health and not health["hindi_text_to_speech"]["available"]:
         print(f"Hindi speech unavailable: {health['hindi_text_to_speech']['detail']}. Hindi text remains available.")
 

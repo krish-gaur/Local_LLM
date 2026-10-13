@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "jean-grey"
-version = "0.3.2"
+version = "0.3.3"
 description = "Local-first, resource-aware autonomous AI agent with optional voice"
 readme = "README.md"
 requires-python = ">=3.11"

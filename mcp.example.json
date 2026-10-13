@@ -8,8 +8,7 @@
         "@playwright/mcp@0.0.83",
         "--browser",
         "chrome",
-        "--user-data-dir",
-        "C:\\Users\\YOUR_NAME\\.jean-grey\\browser-profile"
+        "--isolated"
       ],
       "env_from": {},
       "browser": true,

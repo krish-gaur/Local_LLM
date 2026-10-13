@@ -26,8 +26,9 @@ class McpManager:
                 statuses.append(McpStatus(name, True, True, len(discovered), registered, "connected"))
             except Exception as exc:
                 client.close()
+                reason = str(exc) if isinstance(exc, McpBackendError) else type(exc).__name__
                 statuses.append(McpStatus(name, True, False, 0, 0,
-                                          str(exc) if isinstance(exc, McpBackendError) else type(exc).__name__))
+                                          f"server_connection_failed: {reason}"))
         return statuses
 
     def close(self) -> None:

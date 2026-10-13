@@ -58,11 +58,11 @@ validated local model planner and remains a limitation.
 ## CLI
 
 ```powershell
-# Install only after explicit review/approval:
+# Install only after explicit review/approval, using project-local environments:
 .\.venv\Scripts\python.exe -m pip install -e ".[mcp]"
-npm install --global @playwright/mcp@0.0.83
-Copy-Item .\mcp.example.json "$HOME\.jean-grey\mcp.json"
-# Edit the profile path and set enabled=true.
+npm.cmd install --no-save --package-lock=false @playwright/mcp@0.0.83
+Copy-Item .\mcp.windows.example.json "$HOME\.jean-grey\mcp.json"
+# Review the isolated-browser allowlist, then set enabled=true.
 
 jean-grey mcp --check
 jean-grey browser --check
