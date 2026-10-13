@@ -35,6 +35,26 @@ def suspicious_content(text: str) -> tuple[bool, tuple[str, ...]]:
     return bool(found), found
 
 
+class BrowserLinkExtractionTool(Tool):
+    """Run one fixed read-only DOM query; user/model supplied JavaScript is never accepted."""
+    name = "browser.extract_links"
+    description = "Extract visible anchor text and absolute URLs with fixed adapter-owned JavaScript"
+    permission = PermissionClass.READ_ONLY
+    schema: dict[str, Json] = {"type": "object", "properties": {}, "required": []}
+    _function = ("() => Array.from(document.querySelectorAll('a[href]')).slice(0, 200).map(a => "
+                 "({text: (a.innerText || a.getAttribute('aria-label') || '').trim(), url: a.href}))")
+
+    def __init__(self, client: McpClient, max_content_chars: int) -> None:
+        self.client, self.timeout_seconds, self.max_content_chars = client, client.config.timeout_seconds, max_content_chars
+
+    def execute(self, arguments: dict[str, Json], context: ToolContext) -> ToolResult:
+        context.raise_if_cancelled(); result = self.client.invoke("browser_evaluate", {"function": self._function})
+        if not result.ok: return result
+        raw = _flatten(result.data, self.max_content_chars)
+        return ToolResult.success({"raw": raw, "mcp_tool": "browser_evaluate",
+                                   "untrusted_web_content": True, "truncated": len(raw) >= self.max_content_chars})
+
+
 class BrowserMcpTool(Tool):
     def __init__(self, alias: str, remote_name: str, client: McpClient, permission: PermissionClass,
                  max_content_chars: int = 100_000) -> None:
@@ -77,4 +97,7 @@ def register_browser_tools(client: McpClient, registry: ToolRegistry,
         registry.register(BrowserMcpTool(alias, remote, client, client.config.allowed_tools[remote],
                                          max_content_chars))
         registered.append(alias)
+    if ("browser_evaluate" in client.tools and "browser_evaluate" in client.config.allowed_tools
+            and "browser_evaluate" in client.config.adapter_only_tools):
+        registry.register(BrowserLinkExtractionTool(client, max_content_chars)); registered.append("browser.extract_links")
     return tuple(registered)

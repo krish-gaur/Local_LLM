@@ -65,10 +65,11 @@ class McpTests(TestCase):
     def test_config_allowlist_and_environment_indirection(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "mcp.json"
-            path.write_text('{"servers":{"safe":{"enabled":true,"command":"server","args":[],"env_from":{"TOKEN":"TEST_TOKEN"},"allowed_tools":{"navigate":"read_only"}}}}')
+            path.write_text('{"servers":{"safe":{"enabled":true,"command":"server","args":[],"env_from":{"TOKEN":"TEST_TOKEN"},"allowed_tools":{"navigate":"read_only","evaluate":{"permission":"read_only","adapter_only":true}}}}}')
             with mock.patch.dict(os.environ, {"TEST_TOKEN": "secret-value"}):
                 loaded = load_mcp_config(path); environment = loaded.servers["safe"].environment()
         self.assertEqual(environment, {"TOKEN": "secret-value"})
+        self.assertEqual(loaded.servers["safe"].adapter_only_tools, frozenset({"evaluate"}))
         self.assertNotIn("secret-value", repr(loaded))
 
     def test_invalid_config_fails_closed(self):

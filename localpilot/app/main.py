@@ -34,6 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source", action="append", default=[], help="approved source URL (repeatable)")
     parser.add_argument("--report", type=Path, help="report path under the approved report root")
     parser.add_argument("--format", choices=("markdown", "csv"), default="markdown")
+    parser.add_argument("--market", default="India", help="market used for evidence comparison")
+    parser.add_argument("--source-count", type=int, choices=(2, 3), default=3)
     return parser
 
 
@@ -141,6 +143,41 @@ def execute_research(settings: Settings, config_path: Path, topic: str, source_u
     finally: manager.close()
 
 
+def execute_verified_browser_research(settings: Settings, config_path: Path, query: str,
+                                      market: str, report_path: Path | None,
+                                      runtime_hook=None, source_count: int = 3):
+    """Search and inspect real result URLs through controlled MCP tools and AgentRuntime."""
+    from datetime import date
+    from localpilot.agent.executor import Executor, ToolRegistry
+    from localpilot.agent.permissions import PermissionPolicy
+    from localpilot.agent.runtime import AgentRuntime
+    from localpilot.browser.evidence import CompareSourcesTool, SearchLinkExtractorTool
+    from localpilot.browser.reports import ResearchReportTool
+    from localpilot.browser.search import VerifiedResearchPlanner, VerifiedResearchRequest
+    from localpilot.browser.tools import register_browser_tools
+    from localpilot.mcp.config import load_mcp_config
+    from localpilot.mcp.registry import McpManager
+
+    config = load_mcp_config(config_path); registry = ToolRegistry(); manager = McpManager(config)
+    statuses = manager.connect_enabled(registry); aliases: tuple[str, ...] = ()
+    for client in manager.clients.values():
+        if client.connected and client.config.browser:
+            aliases += register_browser_tools(client, registry, settings.browser_max_content_chars)
+    required = {"browser.navigate", "browser.get_page_content", "browser.extract_links"}
+    if not required.issubset(set(aliases)):
+        manager.close(); raise RuntimeError(f"required Playwright MCP research tools unavailable; statuses={statuses}")
+    registry.register(SearchLinkExtractorTool()); registry.register(CompareSourcesTool())
+    if report_path is not None: registry.register(ResearchReportTool(settings.report_root))
+    request = VerifiedResearchRequest(query, market, date.today().isoformat(), report_path,
+                                      source_count, settings.search_base_url)
+    runtime = AgentRuntime(VerifiedResearchPlanner(request),
+                           Executor(registry, PermissionPolicy(settings.report_root)))
+    task = runtime.create_task(f"Verified browser research: {query}")
+    if runtime_hook is not None: runtime_hook(runtime, task)
+    try: return runtime.run_task(task), statuses
+    finally: manager.close()
+
+
 def execute_browser_search(settings: Settings, config_path: Path, query: str, runtime_hook=None):
     """Run a search page through the same MCP registry, policy, runtime, and verifier."""
     from localpilot.agent.executor import Executor, ToolRegistry
@@ -172,11 +209,20 @@ def run_browser(settings: Settings, args: argparse.Namespace) -> int:
         return run_mcp_check(settings, config_path, browser_only=True)
     extension = ".md" if args.format == "markdown" else ".csv"
     report = args.report or settings.report_root / f"research-report{extension}"
-    try: task, statuses = execute_research(settings, config_path, args.topic, tuple(args.source), report, args.format)
+    try:
+        if args.source:
+            task, statuses = execute_research(settings, config_path, args.topic, tuple(args.source), report, args.format)
+        elif args.format != "markdown":
+            raise ValueError("verified search currently writes Markdown; use --format markdown")
+        else:
+            task, statuses = execute_verified_browser_research(settings, config_path, args.topic,
+                args.market, report, source_count=args.source_count)
     except Exception as exc:
         print(f"Jean Grey browser error: {exc}", file=sys.stderr); return 4
     report_result = next((event.result for event in reversed(task.history) if event.tool == "report.create"), None)
-    print(json.dumps({"task": task.report(), "report": report_result,
+    comparison = next((event.result for event in reversed(task.history)
+                       if event.tool == "research.compare_sources"), None)
+    print(json.dumps({"task": task.report(), "comparison": comparison, "report": report_result,
                       "servers": [status.detail for status in statuses]}, indent=2))
     return 0 if task.state.value == "COMPLETED" else 4
 
@@ -227,10 +273,13 @@ def run_voice(settings: Settings, args: argparse.Namespace) -> int:
         urls = tuple(re.findall(r"https?://[^\s,]+", text))
         search_intent = parse_browser_search(text)
         if search_intent is not None and settings.mcp_config_path.is_file():
-            try: task, _statuses = execute_browser_search(settings, settings.mcp_config_path, search_intent.query,
-                lambda active_runtime, active: active_execution.__setitem__(0, (active_runtime, active)))
+            research_report = settings.report_root / f"voice-research-{int(time.time())}.md"
+            try: task, _statuses = execute_verified_browser_research(
+                settings, settings.mcp_config_path, search_intent.query, args.market, research_report,
+                lambda active_runtime, active: active_execution.__setitem__(0, (active_runtime, active)),
+                source_count=min(3, max(2, search_intent.compare_count if search_intent.compare_count > 1 else 3)))
             except Exception as exc:
-                return AgentReply(f"Browser search unavailable: {type(exc).__name__}. Koi result claim nahi kiya gaya.", "FAILED")
+                return AgentReply(f"Browser research unavailable: {type(exc).__name__}. Koi result claim nahi kiya gaya.", "FAILED")
         elif "research" in text.lower() and urls and settings.mcp_config_path.is_file():
             research_report = settings.report_root / f"voice-research-{int(time.time())}.md"
             try: task, _statuses = execute_research(settings, settings.mcp_config_path, text, urls, research_report)
@@ -243,11 +292,21 @@ def run_voice(settings: Settings, args: argparse.Namespace) -> int:
             language = (preferred_language[0] if preferred_language[0] != VoiceLanguage.AUTO
                         else detect_language(text))
             if search_intent is not None:
-                detail = ("The search page was verified and observed results are visible. I will not claim a price until source pages are compared."
-                          if language == VoiceLanguage.ENGLISH else
-                          "खोज परिणाम सत्यापित हैं। स्रोत पृष्ठों की तुलना किए बिना मैं कीमत का दावा नहीं करूँगी।"
-                          if language == VoiceLanguage.HINDI else
-                          "Search results verify ho gaye aur screen par sources dikh rahe hain. Source pages compare kiye bina main price claim nahi karungi.")
+                comparison = next((event.result for event in reversed(task.history)
+                                   if event.tool == "research.compare_sources"), None)
+                if isinstance(comparison, dict):
+                    print(json.dumps({"verified_research": comparison}, indent=2, ensure_ascii=False))
+                    conclusion = str(comparison.get("conclusion", "Evidence comparison produced no conclusion."))
+                    if language == VoiceLanguage.HINDI:
+                        detail = ("तुलना के स्रोत स्क्रीन पर हैं। " +
+                                  ("पर्याप्त प्रमाण मिला। " if comparison.get("verified_conclusion") else
+                                   "सबसे सस्ती कार बताने के लिए प्रमाण पर्याप्त नहीं है। ")) + conclusion
+                    elif language == VoiceLanguage.HINGLISH:
+                        detail = ("Sources screen par hain. " +
+                                  ("Evidence comparison verify hua. " if comparison.get("verified_conclusion") else
+                                   "Cheapest result claim karne ke liye evidence insufficient hai. ")) + conclusion
+                    else: detail = conclusion
+                else: detail = "Evidence comparison was not observed, so no factual result is claimed."
                 summary = concise_status("COMPLETED", language, detail)
             else:
                 summary = concise_status("COMPLETED", language,

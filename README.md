@@ -142,12 +142,17 @@ Checks connect and discover schemas but never call tools or download packages. T
 cookies or saved passwords. Browser clicks/form fills are sensitive by default and require the
 existing approval path.
 
-A source-grounded mock-tested research workflow accepts explicit URLs:
+A source-grounded mock-tested workflow accepts explicit URLs, or discovers and inspects two or
+three real result links when sources are omitted:
 
 ```powershell
 jean-grey browser --topic "Compare controlled sources" `
   --source "https://example.org/one" --source "https://example.org/two" `
   --report "$HOME\.jean-grey\reports\comparison.md"
+
+jean-grey browser --topic "cheapest BYD car available in India" `
+  --market "India" --source-count 3 `
+  --report "$HOME\.jean-grey\reports\byd-india.md"
 ```
 
 Browser evidence is untrusted data, never policy or instructions. Reports are path-contained,
@@ -166,8 +171,8 @@ python -m localpilot.app.main voice --check
 ```
 
 Documentation: [Milestone 1](docs/milestone-1.md), [Milestone 2](docs/milestone-2.md), and
-[Milestone 2.1](docs/milestone-2.1.md), [Milestone 3](docs/milestone-3.md), and
-[Milestone 3.1](docs/milestone-3.1.md).
+[Milestone 2.1](docs/milestone-2.1.md), [Milestone 3](docs/milestone-3.md),
+[Milestone 3.1](docs/milestone-3.1.md), and [Milestone 3.2](docs/milestone-3.2.md).
 
 Real Playwright/Chrome integration remains environment-dependent and unverified in the sandbox.
 Persistent SQLite checkpoints and a desktop GUI are not implemented yet.

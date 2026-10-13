@@ -20,6 +20,7 @@ from localpilot.tools.base import PermissionClass
 NAV_SCHEMA = {"type": "object", "properties": {"url": {"type": "string", "maxLength": 4096}}, "required": ["url"]}
 EMPTY_SCHEMA = {"type": "object", "properties": {}, "required": []}
 CLICK_SCHEMA = {"type": "object", "properties": {"element": {"type": "string"}, "ref": {"type": "string"}}, "required": ["element", "ref"]}
+EVALUATE_SCHEMA = {"type": "object", "properties": {"function": {"type": "string"}}, "required": ["function"]}
 
 
 class BrowserBackend:
@@ -28,6 +29,7 @@ class BrowserBackend:
         self.calls, self.closed = [], False
         self.tools = [DiscoveredTool("browser_navigate", "Navigate", NAV_SCHEMA),
                       DiscoveredTool("browser_snapshot", "Snapshot", EMPTY_SCHEMA),
+                      DiscoveredTool("browser_evaluate", "Evaluate", EVALUATE_SCHEMA),
                       DiscoveredTool("browser_click", "Click", CLICK_SCHEMA)]
     def connect(self): pass
     def list_tools(self): return self.tools
@@ -41,6 +43,9 @@ class BrowserBackend:
         if name == "browser_snapshot":
             if self.current is None: return {"isError": True, "content": "unexpected page state"}
             return {"content": self.pages[self.current]}
+        if name == "browser_evaluate":
+            if self.current is None: return {"isError": True, "content": "unexpected page state"}
+            return {"content": self.pages[self.current]}
         return {"isError": True, "content": "missing element"}
     def close(self): self.closed = True
 
@@ -48,8 +53,10 @@ class BrowserBackend:
 def browser_client(backend):
     allowed = {"browser_navigate": PermissionClass.READ_ONLY,
                "browser_snapshot": PermissionClass.READ_ONLY,
+               "browser_evaluate": PermissionClass.READ_ONLY,
                "browser_click": PermissionClass.SENSITIVE}
-    definition = McpServerConfig("playwright", True, "mock", allowed_tools=allowed, browser=True)
+    definition = McpServerConfig("playwright", True, "mock", allowed_tools=allowed, browser=True,
+                                 adapter_only_tools=frozenset({"browser_evaluate"}))
     client = McpClient(definition, backend); client.connect(); return client
 
 
@@ -62,6 +69,20 @@ class BrowserTests(TestCase):
         client = browser_client(backend); registry = ToolRegistry(); register_browser_tools(client, registry)
         registry.register(ResearchReportTool(self.root)); registry.register(OverwriteResearchReportTool(self.root))
         return client, registry
+
+    def test_fixed_link_adapter_does_not_expose_arbitrary_evaluate_tool(self):
+        backend = BrowserBackend({"https://search.test": "https://source.test/page"})
+        client = browser_client(backend); registry = ToolRegistry(); client.register_allowed(registry)
+        register_browser_tools(client, registry)
+        self.assertIn("browser.extract_links", registry.names)
+        self.assertNotIn("mcp.playwright.browser_evaluate", registry.names)
+        executor = Executor(registry, PermissionPolicy(self.root))
+        executor.execute("browser.navigate", {"url": "https://search.test"}, __import__("threading").Event())
+        result = executor.execute("browser.extract_links", {}, __import__("threading").Event())
+        self.assertTrue(result.ok)
+        function = next(arguments["function"] for name, arguments in backend.calls if name == "browser_evaluate")
+        self.assertIn("querySelectorAll", function)
+        client.close()
 
     def test_navigation_content_and_untrusted_label(self):
         backend = BrowserBackend({"https://one.test": "visible evidence"}); client, registry = self.registry(backend)

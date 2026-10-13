@@ -17,6 +17,10 @@
       "allowed_tools": {
         "browser_navigate": "read_only",
         "browser_snapshot": "read_only",
+        "browser_evaluate": {
+          "permission": "read_only",
+          "adapter_only": true
+        },
         "browser_tabs": "read_only",
         "browser_take_screenshot": "sensitive",
         "browser_click": "sensitive",

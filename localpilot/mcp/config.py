@@ -23,6 +23,7 @@ class McpServerConfig:
     allowed_tools: dict[str, PermissionClass] = field(default_factory=dict)
     timeout_seconds: float = 30.0
     browser: bool = False
+    adapter_only_tools: frozenset[str] = frozenset()
 
     def environment(self) -> dict[str, str]:
         result: dict[str, str] = {}
@@ -51,7 +52,14 @@ def load_mcp_config(path: Path, *, max_bytes: int = 256_000) -> McpConfig:
             raise McpConfigError("invalid MCP server name or definition")
         allowed_raw = value.get("allowed_tools", {})
         if not isinstance(allowed_raw, dict): raise McpConfigError(f"server {name}: allowed_tools must be an object")
-        try: allowed = {str(tool): PermissionClass(str(permission)) for tool, permission in allowed_raw.items()}
+        allowed: dict[str, PermissionClass] = {}; adapter_only: set[str] = set()
+        try:
+            for tool, definition in allowed_raw.items():
+                if isinstance(definition, str): allowed[str(tool)] = PermissionClass(definition)
+                elif isinstance(definition, dict):
+                    allowed[str(tool)] = PermissionClass(str(definition.get("permission")))
+                    if bool(definition.get("adapter_only", False)): adapter_only.add(str(tool))
+                else: raise ValueError("invalid tool definition")
         except ValueError as exc: raise McpConfigError(f"server {name}: invalid tool permission") from exc
         command, args, env_from = value.get("command"), value.get("args", []), value.get("env_from", {})
         if not isinstance(command, str) or not command or not isinstance(args, list) or not all(isinstance(x, str) for x in args):
@@ -61,5 +69,5 @@ def load_mcp_config(path: Path, *, max_bytes: int = 256_000) -> McpConfig:
         timeout = float(value.get("timeout_seconds", 30))
         if not 1 <= timeout <= 300: raise McpConfigError(f"server {name}: timeout must be 1..300 seconds")
         servers[name] = McpServerConfig(name, bool(value.get("enabled", False)), command, tuple(args),
-            dict(env_from), allowed, timeout, bool(value.get("browser", False)))
+            dict(env_from), allowed, timeout, bool(value.get("browser", False)), frozenset(adapter_only))
     return McpConfig(servers)

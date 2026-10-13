@@ -107,6 +107,7 @@ class McpClient:
         if not self.connected: raise McpBackendError("MCP server is not connected")
         count = 0
         for name, permission in self.config.allowed_tools.items():
+            if name in self.config.adapter_only_tools: continue
             remote = self.tools.get(name)
             if remote is None: continue
             registry.register(McpTool(self, remote, permission)); count += 1
